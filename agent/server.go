@@ -40,6 +40,7 @@ func (server echoServer) ServeHTTP(writer http.ResponseWriter, request *http.Req
 		}
 		if err != nil {
 			server.logf("failed to echo with %v: %v", request.RemoteAddr, err)
+			return
 		}
 	}
 }
