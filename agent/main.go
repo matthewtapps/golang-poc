@@ -33,7 +33,7 @@ func run() error {
 	log.Printf("agent is listening to commands from server on ws://%v", l.Addr())
 
 	server := &http.Server{
-		Handler: echoServer{
+		Handler: agentServer{
 			logf: log.Printf,
 		},
 		ReadTimeout:  time.Second * 10,

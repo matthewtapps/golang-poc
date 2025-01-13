@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/coder/websocket"
@@ -12,11 +13,11 @@ import (
 	"golang.org/x/time/rate"
 )
 
-type echoServer struct {
+type agentServer struct {
 	logf func(f string, v ...interface{})
 }
 
-func (server echoServer) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+func (server agentServer) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	connection, err := websocket.Accept(writer, request, &websocket.AcceptOptions{
 		Subprotocols: []string{"echo"},
 	})
@@ -34,7 +35,7 @@ func (server echoServer) ServeHTTP(writer http.ResponseWriter, request *http.Req
 
 	limit := rate.NewLimiter(rate.Every(time.Millisecond*100), 10)
 	for {
-		err = echo(connection, limit)
+		err = agent(connection, limit)
 		if websocket.CloseStatus(err) == websocket.StatusNormalClosure {
 			return
 		}
@@ -45,7 +46,7 @@ func (server echoServer) ServeHTTP(writer http.ResponseWriter, request *http.Req
 	}
 }
 
-func echo(connection *websocket.Conn, limit *rate.Limiter) error {
+func agent(connection *websocket.Conn, limit *rate.Limiter) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 
@@ -54,21 +55,18 @@ func echo(connection *websocket.Conn, limit *rate.Limiter) error {
 		return err
 	}
 
-	messageType, reader, err := connection.Reader(ctx)
+	_, reader, err := connection.Reader(ctx)
 	if err != nil {
 		return err
 	}
 
-	writer, err := connection.Writer(ctx, messageType)
-	if err != nil {
-		return err
-	}
+	// Write received messages to stdout
+	writer := io.Writer(os.Stdout)
 
 	_, err = io.Copy(writer, reader)
 	if err != nil {
 		return fmt.Errorf("failed to io.Copy: %w", err)
 	}
 
-	err = writer.Close()
 	return err
 }
