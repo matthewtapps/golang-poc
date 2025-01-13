@@ -42,8 +42,8 @@ func run() error {
 
 	for {
 		scanner := bufio.NewScanner(os.Stdin)
+		fmt.Print("-> ")
 		for scanner.Scan() {
-			fmt.Print("-> ")
 			err = wsjson.Write(ctx, connection, map[string]string{
 				"type":    "echo",
 				"message": scanner.Text(),
@@ -51,12 +51,7 @@ func run() error {
 			if err != nil {
 				return err
 			}
-			v := map[string]string{}
-			err = wsjson.Read(ctx, connection, &v)
-			if err != nil {
-				return err
-			}
-			fmt.Println(v)
+			fmt.Print("-> ")
 		}
 	}
 }
