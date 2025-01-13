@@ -32,17 +32,16 @@ func run() error {
 
 	log.Printf("agent is listening to commands from server on ws://%v", l.Addr())
 
-	server := &http.Server{
-		Handler: agentServer{
-			logf: log.Printf,
-		},
+	as := newAgentServer()
+	httpServer := &http.Server{
+		Handler:      as,
 		ReadTimeout:  time.Second * 10,
 		WriteTimeout: time.Second * 10,
 	}
 
 	errorChannel := make(chan error, 1)
 	go func() {
-		errorChannel <- server.Serve(l)
+		errorChannel <- httpServer.Serve(l)
 	}()
 
 	signalChannel := make(chan os.Signal, 1)
@@ -58,5 +57,5 @@ func run() error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 
-	return server.Shutdown(ctx)
+	return httpServer.Shutdown(ctx)
 }

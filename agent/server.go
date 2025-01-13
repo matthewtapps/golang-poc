@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"encoding/json"
+	"errors"
 	"io"
+	"log"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -14,43 +17,70 @@ import (
 )
 
 type agentServer struct {
-	logf func(f string, v ...interface{})
+	logf           func(f string, v ...interface{})
+	publishLimiter *rate.Limiter
+	serveMux       http.ServeMux
+	subscribersMu  sync.Mutex
+	messages       chan []byte
 }
 
-func (server agentServer) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
-	connection, err := websocket.Accept(writer, request, &websocket.AcceptOptions{
-		Subprotocols: []string{"echo"},
-	})
-	if err != nil {
-		server.logf("%v", err)
-		return
+func newAgentServer() *agentServer {
+	agentServer := &agentServer{
+		logf:           log.Printf,
+		publishLimiter: rate.NewLimiter(rate.Every(time.Millisecond*100), 8),
 	}
 
+	agentServer.serveMux.HandleFunc("/subscribe", agentServer.subscribeHandler)
+
+	return agentServer
+}
+
+func (as *agentServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	as.serveMux.ServeHTTP(w, r)
+}
+
+func (as *agentServer) subscribeHandler(w http.ResponseWriter, r *http.Request) {
+	err := as.subscribe(w, r)
+	if errors.Is(err, context.Canceled) {
+		return
+	}
+	if websocket.CloseStatus(err) == websocket.StatusNormalClosure ||
+		websocket.CloseStatus(err) == websocket.StatusGoingAway {
+		return
+	}
+	if err != nil {
+		as.logf("%v", err)
+		return
+	}
+}
+
+func (as *agentServer) subscribe(writer http.ResponseWriter, request *http.Request) error {
+	connection, err := websocket.Accept(writer, request, nil)
+	if err != nil {
+		return err
+	}
+
+	println("accepted connection from server")
 	defer connection.CloseNow()
 
-	if connection.Subprotocol() != "echo" {
-		connection.Close(websocket.StatusPolicyViolation, "client must speak the echo Subprotocol")
-		return
-	}
-
-	limit := rate.NewLimiter(rate.Every(time.Millisecond*100), 10)
 	for {
-		err = agent(connection, limit)
+		err = as.decode(connection)
 		if websocket.CloseStatus(err) == websocket.StatusNormalClosure {
-			return
+			return err
 		}
 		if err != nil {
-			server.logf("failed to echo with %v: %v", request.RemoteAddr, err)
-			return
+			as.logf("agent failed to action message with %v: %v", request.RemoteAddr, err)
+			return err
 		}
 	}
 }
 
-func agent(connection *websocket.Conn, limit *rate.Limiter) error {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+func (as *agentServer) decode(connection *websocket.Conn) error {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
 	defer cancel()
+	writer := io.Writer(os.Stdout)
 
-	err := limit.Wait(ctx)
+	err := as.publishLimiter.Wait(ctx)
 	if err != nil {
 		return err
 	}
@@ -60,13 +90,21 @@ func agent(connection *websocket.Conn, limit *rate.Limiter) error {
 		return err
 	}
 
-	// Write received messages to stdout
-	writer := io.Writer(os.Stdout)
+	message, err := io.ReadAll(reader)
 
-	_, err = io.Copy(writer, reader)
+	type Message struct {
+		Message string
+	}
+	var v Message
+
+	err = json.Unmarshal(message, &v)
 	if err != nil {
-		return fmt.Errorf("failed to io.Copy: %w", err)
+		return err
 	}
 
-	return err
+	for {
+		writer.Write([]byte(v.Message))
+		writer.Write([]byte("\n"))
+		return nil
+	}
 }
