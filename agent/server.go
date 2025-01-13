@@ -102,9 +102,7 @@ func (as *agentServer) decode(connection *websocket.Conn) error {
 		return err
 	}
 
-	for {
-		writer.Write([]byte(v.Message))
-		writer.Write([]byte("\n"))
-		return nil
-	}
+	writer.Write([]byte(v.Message))
+	writer.Write([]byte("\n"))
+	return nil
 }
