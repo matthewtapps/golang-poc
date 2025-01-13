@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -10,7 +11,6 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/coder/websocket/wsjson"
 )
 
 func main() {
@@ -30,7 +30,7 @@ func run() error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
-	connection, _, err := websocket.Dial(ctx, os.Args[1], &websocket.DialOptions{
+	connection, _, err := websocket.Dial(ctx, fmt.Sprintf("%s%s", os.Args[1], "/subscribe"), &websocket.DialOptions{
 		Subprotocols: []string{"echo"},
 	})
 	if err != nil {
@@ -44,13 +44,22 @@ func run() error {
 		scanner := bufio.NewScanner(os.Stdin)
 		fmt.Print("-> ")
 		for scanner.Scan() {
-			err = wsjson.Write(ctx, connection, map[string]string{
-				"type":    "echo",
-				"message": scanner.Text(),
-			})
+			writer, err := connection.Writer(ctx, websocket.MessageText)
 			if err != nil {
 				return err
 			}
+
+			v := map[string]string{
+				"Message": scanner.Text(),
+			}
+
+			marshalledMessage, err := json.Marshal(v)
+			if err != nil {
+				return err
+			}
+
+			writer.Write(marshalledMessage)
+			writer.Close()
 			fmt.Print("-> ")
 		}
 	}
