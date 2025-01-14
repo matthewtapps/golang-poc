@@ -30,7 +30,7 @@ func run() error {
 		return err
 	}
 
-	log.Printf("server is waiting for agents to establish connections on ws//%v", l.Addr())
+	log.Printf("server is waiting for agents to establish connections on ws://%v", l.Addr())
 
 	as := newAuthServer()
 	httpServer := &http.Server{
