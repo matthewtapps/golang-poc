@@ -115,6 +115,7 @@ func (as *authenticationServer) subscribe(w http.ResponseWriter, r *http.Request
 			}
 		case <-ctx.Done():
 			as.logf("connection to agent with id %v closed", s.id)
+			fmt.Print("-> ")
 			return ctx.Err()
 		}
 	}
