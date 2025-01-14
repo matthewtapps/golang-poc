@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -180,22 +181,20 @@ func (as *authenticationServer) deleteAgent(a *agent) {
 }
 
 func decodeCommand(cmd []byte) (Command, error) {
-	// receive command as stream of bytes
-	// convert to string
-	// split on whitespace
-	// assert 3 chunks
-	// assert order:
-	// 1. agent ID
-	// 2. ip address
-	// 3. command
-	//
-	// convert into a Command struct
-	//
-	// send to the specified agent's channel
+	stringCommand := string(cmd)
+	splitString := strings.Split(stringCommand, " ")
+	if len(splitString) < 3 {
+		log.Println("Command must have format: <agent ID> <ip address> <...command>")
+		return Command{}, nil
+	}
+	agentId := splitString[0]
+	ipAddr := splitString[1]
+	command := strings.Join(splitString[2:], " ")
+
 	return Command{
-		Ip:      "192.0.0.69",
-		AgentId: "testId",
-		Command: "beans",
+		AgentId: agentId,
+		Ip:      ipAddr,
+		Command: command,
 	}, nil
 }
 
