@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -75,7 +76,7 @@ func (as *authenticationServer) subscribe(w http.ResponseWriter, r *http.Request
 
 	s := &agent{
 		commands: make(chan Command, 16),
-		id:       generateAgentId(),
+		id:       as.generateAgentId(),
 		closeSlow: func() {
 			mu.Lock()
 			defer mu.Unlock()
@@ -139,7 +140,11 @@ func (as *authenticationServer) command(cmd []byte) {
 	as.commandLimiter.Wait(context.Background())
 
 	command, err := decodeCommand(cmd)
-	if err != nil {
+	if err == errors.ErrUnsupported {
+		log.Println("incorrect command format, must follow: <agent ID> <ip address> <...command>")
+		fmt.Print("-> ")
+		return
+	} else if err != nil {
 		as.logf("%v", err)
 		return
 	}
@@ -153,7 +158,8 @@ func (as *authenticationServer) command(cmd []byte) {
 	}
 
 	if len(as.agents) < 1 || !idRegistered {
-		as.logf("no agents registered for given id")
+		as.logf("no agents registered for given id, doing nothing")
+		fmt.Print("-> ")
 		return
 	}
 
@@ -184,8 +190,7 @@ func decodeCommand(cmd []byte) (Command, error) {
 	stringCommand := string(cmd)
 	splitString := strings.Split(stringCommand, " ")
 	if len(splitString) < 3 {
-		log.Println("Command must have format: <agent ID> <ip address> <...command>")
-		return Command{}, nil
+		return Command{}, errors.ErrUnsupported
 	}
 	agentId := splitString[0]
 	ipAddr := splitString[1]
@@ -198,6 +203,14 @@ func decodeCommand(cmd []byte) (Command, error) {
 	}, nil
 }
 
-func generateAgentId() string {
-	return "testId"
+func (as *authenticationServer) generateAgentId() string {
+	potentialId := 1
+	for a := range as.agents {
+		existingId, _ := strconv.Atoi(a.id)
+
+		if existingId == potentialId {
+			potentialId += 1
+		}
+	}
+	return fmt.Sprintf("%v", potentialId)
 }
