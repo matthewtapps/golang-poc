@@ -8,7 +8,6 @@ import (
 	"io"
 	"log"
 	"os"
-	"time"
 
 	"github.com/coder/websocket"
 )
@@ -27,7 +26,7 @@ func run() error {
 		return errors.New("must specify server address and port as first argument")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	connection, _, err := websocket.Dial(ctx, fmt.Sprintf("%s%s", os.Args[1], "/subscribe"), &websocket.DialOptions{
@@ -48,10 +47,17 @@ func run() error {
 	}
 }
 
-type Command struct {
-	Command string
+type AuthServerCommand struct {
+	Command Command
 	Ip      string
 }
+
+type Command string
+
+const (
+	AllowIpAddr Command = "AllowIpAddr"
+	BlockIpAddr Command = "BlockIpAddr"
+)
 
 func receiveMessage(ctx context.Context, connection *websocket.Conn) error {
 	_, reader, err := connection.Reader(ctx)
@@ -61,13 +67,21 @@ func receiveMessage(ctx context.Context, connection *websocket.Conn) error {
 
 	message, err := io.ReadAll(reader)
 
-	var v Command
+	var v AuthServerCommand
 
 	err = json.Unmarshal(message, &v)
 	if err != nil {
 		return err
 	}
 
-	log.Printf("Ip: %v, Command: %v", v.Ip, v.Command)
+	switch v.Command {
+	case AllowIpAddr:
+		log.Printf("Command received to allow IP Address %v", v.Ip)
+	case BlockIpAddr:
+		log.Printf("Command received to block IP Address %v", v.Ip)
+	default:
+		log.Printf("Ip: %v, Command: %v", v.Ip, v.Command)
+	}
+
 	return nil
 }
