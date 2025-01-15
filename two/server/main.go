@@ -10,11 +10,19 @@ import (
 	"os"
 	"os/signal"
 	"time"
+
+	"github.com/honeycombio/otel-config-go/otelconfig"
 )
 
 func main() {
+	otelShutdown, err := otelconfig.ConfigureOpenTelemetry()
+	if err != nil {
+		log.Fatalf("error setting up OTeL SDK - %e", err)
+	}
+	defer otelShutdown()
+
 	log.SetFlags(0)
-	err := run()
+	err = run()
 	if err != nil {
 		log.Fatal(err)
 	}

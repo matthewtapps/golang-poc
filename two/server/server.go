@@ -14,6 +14,10 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/time/rate"
 )
 
@@ -23,6 +27,7 @@ type authenticationServer struct {
 	agentsMu       sync.Mutex
 	agents         map[*agent]struct{}
 	commandLimiter *rate.Limiter
+	tracer         trace.Tracer
 }
 
 type agent struct {
@@ -42,9 +47,13 @@ func newAuthServer() *authenticationServer {
 		logf:           log.Printf,
 		agents:         make(map[*agent]struct{}),
 		commandLimiter: rate.NewLimiter(rate.Every(time.Millisecond*100), 8),
+		tracer:         otel.Tracer("agent-server-golang"),
 	}
 
-	authServer.serveMux.HandleFunc("/subscribe", authServer.subscribeHandler)
+	subscribeHandler := http.HandlerFunc(authServer.subscribeHandler)
+	wrappedSubscribeHandler := otelhttp.NewHandler(subscribeHandler, "subscribe")
+
+	authServer.serveMux.HandleFunc("/subscribe", wrappedSubscribeHandler.ServeHTTP)
 
 	return authServer
 }
@@ -106,24 +115,38 @@ func (as *authenticationServer) subscribe(w http.ResponseWriter, r *http.Request
 
 	ctx := c.CloseRead(context.Background())
 
+	ctx, span := as.tracer.Start(ctx, "agent-subscription")
+	defer span.End()
+
+	span.SetAttributes(attribute.String("agent.id", s.id))
+
+	commands := 0
+
 	for {
 		select {
 		case command := <-s.commands:
-			err := processCommand(ctx, time.Second*5, c, command)
+			commands += 1
+			span.SetAttributes(attribute.Int("commands.count", commands))
+			err := as.processCommand(ctx, time.Second*5, c, command)
 			if err != nil {
 				return err
 			}
 		case <-ctx.Done():
 			as.logf("connection to agent with id %v closed", s.id)
 			fmt.Print("-> ")
+			span.End()
 			return ctx.Err()
 		}
 	}
 }
 
-func processCommand(ctx context.Context, timeout time.Duration, c *websocket.Conn, command Command) error {
+func (as *authenticationServer) processCommand(ctx context.Context, timeout time.Duration, c *websocket.Conn, command Command) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	ctx, span := as.tracer.Start(ctx, "agent-command")
+	defer span.End()
+	span.SetAttributes(attribute.String("target.address", command.Ip))
+	span.SetAttributes(attribute.String("target.command", command.Command))
 
 	marshalledMessage, err := json.Marshal(command)
 	if err != nil {
